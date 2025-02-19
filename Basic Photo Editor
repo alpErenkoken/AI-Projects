@@ -1,0 +1,176 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from tkinter import ttk
+from PIL import Image, ImageTk
+import cv2
+import numpy as np
+
+class AIPhotoEditor:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("AI Photo Editor")
+        self.root.geometry("1100x700")
+        self.root.configure(bg="#2C3E50")  # Dark 
+
+        self.applied_filters = []  # Filters 
+        self.img_cv = None          # Current pic
+        self.img_original = None    # Orig pic
+
+        # Styling stuff
+        self.style = ttk.Style()
+        self.style.theme_use("clam")
+        self.style.configure("TButton", font=("Helvetica", 10), padding=6)
+        self.style.configure("TLabel", font=("Helvetica", 12), background="#2C3E50", foreground="white")
+
+        self.create_widgets()
+
+    def create_widgets(self):
+        # Left side: Pic zone
+        self.left_frame = tk.Frame(self.root, bg="#34495E", width=700, height=600)
+        self.left_frame.pack(side=tk.LEFT, padx=10, pady=10)
+        self.left_frame.pack_propagate(False)
+
+        # Right side: Buttons n stuff
+        self.right_frame = tk.Frame(self.root, bg="#2C3E50", width=350, height=600)
+        self.right_frame.pack(side=tk.RIGHT, padx=10, pady=10)
+        self.right_frame.pack_propagate(False)
+
+        self.image_label = tk.Label(self.left_frame, bg="#34495E")
+        self.image_label.pack(expand=True, fill=tk.BOTH)
+
+        btn_frame = tk.Frame(self.right_frame, bg="#2C3E50")
+        btn_frame.pack(pady=20)
+
+        # All the clicky buttons
+        ttk.Button(btn_frame, text="Load Image", command=self.load_image).pack(pady=5, fill=tk.X)
+        ttk.Button(btn_frame, text="Capture Photo", command=self.capture_photo).pack(pady=5, fill=tk.X)
+        ttk.Button(btn_frame, text="Grayscale", command=lambda: self.apply_filter("Grayscale", self.apply_grayscale)).pack(pady=5, fill=tk.X)
+        ttk.Button(btn_frame, text="Gaussian Blur", command=lambda: self.apply_filter("Gaussian Blur", self.apply_blur)).pack(pady=5, fill=tk.X)
+        ttk.Button(btn_frame, text="Edge Detection", command=lambda: self.apply_filter("Edge Detection", self.apply_edge)).pack(pady=5, fill=tk.X)
+        ttk.Button(btn_frame, text="Face Detection", command=lambda: self.apply_filter("Face Detection", self.apply_face_detection)).pack(pady=5, fill=tk.X)
+        ttk.Button(btn_frame, text="Reset Image", command=self.reset_image).pack(pady=5, fill=tk.X)
+        ttk.Button(btn_frame, text="Save Image", command=self.save_image).pack(pady=5, fill=tk.X)
+
+        # Filter zone
+        status_frame = tk.Frame(self.right_frame, bg="#2C3E50")
+        status_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=10)
+        status_title = ttk.Label(status_frame, text="Applied Filters:")
+        status_title.pack(anchor="w", padx=5)
+        self.filter_status_label = ttk.Label(status_frame, text="None", wraplength=330)
+        self.filter_status_label.pack(anchor="w", padx=5)
+
+    def update_filter_status(self):
+        # Showing
+        status_text = " -> ".join(self.applied_filters) if self.applied_filters else "None"
+        self.filter_status_label.config(text=status_text)
+
+    def load_image(self):
+        # Load a pic from disk
+        file_path = filedialog.askopenfilename(filetypes=[("Image Files", "*.jpg;*.png;*.jpeg")])
+        if file_path:
+            self.img_cv = cv2.imread(file_path)
+            if self.img_cv is None:
+                messagebox.showerror("Error", "Yo, that's not a valid image.")
+                return
+            self.img_original = self.img_cv.copy()
+            self.applied_filters.clear()
+            self.update_filter_status()
+            self.display_image(self.img_cv)
+
+    def capture_photo(self):
+        # shooting from webcam
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            messagebox.showerror("Error", "Webcam ain't working.")
+            return
+
+        messagebox.showinfo("Instructions", "Press 'c' to snap, 'q' to dip.")
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                messagebox.showerror("Error", "Cam bugged out.")
+                break
+            cv2.imshow("Webcam - 'c' to snap, 'q' to quit", frame)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('c'):
+                self.img_cv, self.img_original = frame.copy(), frame.copy()
+                self.applied_filters.clear()
+                self.update_filter_status()
+                break
+            elif key == ord('q'):
+                break
+        cap.release()
+        cv2.destroyAllWindows()
+        if self.img_cv is not None:
+            self.display_image(self.img_cv)
+
+    def display_image(self, img):
+        # Show image in the UI
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img_pil = Image.fromarray(img_rgb).resize((700, 600))
+        self.photo = ImageTk.PhotoImage(img_pil)
+        self.image_label.config(image=self.photo)
+        self.image_label.image = self.photo
+
+    def apply_filter(self, filter_name, filter_function):
+        # Hit the pic with some magic
+        if self.img_cv is not None:
+            filter_function()
+            if filter_name not in self.applied_filters:
+                self.applied_filters.append(filter_name)
+            self.update_filter_status()
+        else:
+            messagebox.showerror("Error", "Yo, load a pic first!")
+
+    def apply_grayscale(self):
+        # GRayscale
+        gray = cv2.cvtColor(self.img_cv, cv2.COLOR_BGR2GRAY)
+        self.img_cv = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        self.display_image(self.img_cv)
+
+    def apply_blur(self):
+        # blur
+        self.img_cv = cv2.GaussianBlur(self.img_cv, (15, 15), 0)
+        self.display_image(self.img_cv)
+
+    def apply_edge(self):
+        # Edgy 
+        gray = cv2.cvtColor(self.img_cv, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, 100, 200)
+        self.img_cv = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+        self.display_image(self.img_cv)
+
+    def apply_face_detection(self):
+        # Spot the faces
+        gray = cv2.cvtColor(self.img_cv, cv2.COLOR_BGR2GRAY)
+        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        faces = face_cascade.detectMultiScale(gray, 1.1, 5)
+        for (x, y, w, h) in faces:
+            cv2.rectangle(self.img_cv, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        self.display_image(self.img_cv)
+
+    def reset_image(self):
+        # Back to orig
+        if self.img_original is not None:
+            self.img_cv = self.img_original.copy()
+            self.applied_filters.clear()
+            self.update_filter_status()
+            self.display_image(self.img_cv)
+        else:
+            messagebox.showerror("Error", "Nothing to reset, fam.")
+
+    def save_image(self):
+        # Save the masterpiece
+        if self.img_cv is not None:
+            file_path = filedialog.asksaveasfilename(defaultextension=".jpg",
+                                                     filetypes=[("JPEG", "*.jpg"), ("PNG", "*.png")])
+            if file_path:
+                cv2.imwrite(file_path, self.img_cv)
+                messagebox.showinfo("Success", "Pic saved. Clean!")
+        else:
+            messagebox.showerror("Error", "Yo, there's no pic to save.")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = AIPhotoEditor(root)
+    root.mainloop()
