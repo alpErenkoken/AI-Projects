@@ -1,0 +1,122 @@
+import cv2
+import mediapipe as mp
+import numpy as np
+import random
+import math
+import time
+
+def get_gesture_and_position(hand_landmarks, image_width, image_height):
+
+   """
+    Determine the gesture (open, fist, or neutral) and extract the index-finger tip position.
+    Adam gibi anlamak için, parmakları sayıyoruz: 4 parmak açık = "open", hiçbiri açık değilse "fist", diğerleri "neutral".
+    """
+
+
+    finger_tips = [8, 12, 16, 20]
+    finger_pips = [6, 10, 14, 18]
+    fingers = [1 if hand_landmarks.landmark[tip].y < hand_landmarks.landmark[pip].y else 0 for tip, pip in zip(finger_tips, finger_pips)]
+    gesture = "open" if sum(fingers) == 4 else "fist" if sum(fingers) == 0 else "neutral"
+    index_tip = hand_landmarks.landmark[8]
+    return gesture, (int(index_tip.x * image_width), int(index_tip.y * image_height))
+
+def main():
+    cap = cv2.VideoCapture(0)
+    game_width, game_height = 640, 480
+    mp_hands = mp.solutions.hands
+    hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7, min_tracking_confidence=0.7)
+    mp_draw = mp.solutions.drawing_utils
+    
+    player_width, player_height = 80, 20
+    player_y = game_height - 50
+    player_x = game_width // 2
+    
+    bullets, enemies = [], []
+    bullet_speed, enemy_speed = 10, 5
+    enemy_spawn_rate = 0.02
+    
+    score, game_over = 0, False
+    prev_gesture = "open"
+    start_time = time.time()
+    
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame = cv2.flip(frame, 1)
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = hands.process(frame_rgb)
+
+        if results.multi_hand_landmarks:
+            for hand_landmarks in results.multi_hand_landmarks:
+                mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+                gesture, (cx, cy) = get_gesture_and_position(hand_landmarks, frame.shape[1], frame.shape[0])
+                player_x = cx
+                if gesture == "fist" and prev_gesture == "open":
+                    bullets.append({"x": player_x, "y": player_y})
+                prev_gesture = gesture
+                break
+
+        for bullet in bullets[:]:
+            bullet["y"] -= bullet_speed
+            if bullet["y"] < 0:
+                bullets.remove(bullet)
+
+        if random.random() < enemy_spawn_rate:
+            enemies.append({"x": random.randint(20, game_width - 20), "y": 0})
+
+        for enemy in enemies[:]:
+            enemy["y"] += enemy_speed
+            if enemy["y"] > game_height:
+                enemies.remove(enemy)
+
+        for bullet in bullets[:]:
+            for enemy in enemies[:]:
+                if math.hypot(bullet["x"] - enemy["x"], bullet["y"] - enemy["y"]) < 25:
+                    bullets.remove(bullet)
+                    enemies.remove(enemy)
+                    score += 1
+                    break
+
+        for enemy in enemies:
+            if enemy["y"] + 20 >= player_y and abs(enemy["x"] - player_x) < player_width / 2:
+                game_over = True
+
+        survival_time = int(time.time() - start_time)
+        game_canvas = np.zeros((game_height, game_width, 3), dtype=np.uint8)
+        game_canvas[:] = (30, 30, 30)
+        
+        cv2.rectangle(game_canvas, (int(player_x - player_width / 2), player_y),
+                      (int(player_x + player_width / 2), player_y + player_height), (0, 255, 0), -1)
+        
+        for bullet in bullets:
+            cv2.circle(game_canvas, (int(bullet["x"]), int(bullet["y"])), 5, (0, 255, 255), -1)
+        
+        for enemy in enemies:
+            cv2.circle(game_canvas, (int(enemy["x"]), int(enemy["y"])), 20, (0, 0, 255), -1)
+        
+        cv2.putText(game_canvas, f"Score: {score}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        cv2.putText(game_canvas, f"Time: {survival_time}s", (10, 70),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        
+        combined_display = np.hstack((frame, game_canvas))
+        
+        if game_over:
+            cv2.putText(combined_display, "GAME OVER! Press 'Q' to Quit", (100, game_height // 2),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
+            cv2.imshow("Gesture Game", combined_display)
+            while True:
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+            break
+        
+        cv2.imshow("Gesture Game", combined_display)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+if __name__ == '__main__':
+    main()
